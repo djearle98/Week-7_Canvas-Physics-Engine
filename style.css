@@ -1,0 +1,10 @@
+body {
+  margin: 0;
+  padding: 0;
+}
+
+#canvas {
+  background-color: rgba(0, 0, 0, 1);
+  position: fixed;
+}
+
