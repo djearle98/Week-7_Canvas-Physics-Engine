@@ -1,55 +1,114 @@
-var canvas = document.getElementById("canvas");
-canvas.height = window.innerHeight;
-canvas.width = window.innerWidth;
-var c = canvas.getContext("2d");
-var r = 20,
-  x = r + 1,
-  y = r + 1,
-  dx = 10,
-  dy = 10,
-  then = new Date();
-draw();
+//Init the canvas
+const canvas = document.querySelector("#canvas");
+const ctx = canvas.getContext("2d");
+const width = (canvas.width = window.innerWidth);
+const height = (canvas.height = window.innerHeight);
+var nodes = []; //holds all nodes on screen
+var dt = 0.1; //amount of change per frame;
+var call=0; //number of iterations
 
-function draw() {
-  //erase old position
-  c.fillStyle = "rgba(0,0,0,0.01)";
-  c.fillRect(0, 0, canvas.width, canvas.height);
-
-  //calculate new position
-  if (y + r >= canvas.height) {
-    y = canvas.height - r;
-    dy = -(dy) + 1;
-    console.log(dy);
-  } else if (y - r <= 0) {
-    y = r;
-    dy = -(dy) - 1;
-  } else {
-    dy += 1;
+class node {
+  constructor(x, y, r, strength, mass, color) {
+    nodes.push(this); //add this to list of nodes
+		this.x = x; //x position
+    this.y = y; //y position
+		this.strength = strength; //strength of repelling force
+		
+		this.vx = 0; //velocity in X
+    this.vy = 0; //velocity in Y
+		
+    this.r = r; //radius
+		this.color = color; //aesthetic color
   }
-  y += dy;
 
-  if (x + r >= canvas.width) {
-    x = canvas.width - r;
-    dx = -dx + 1;
-  } else if (x - r <= 0) {
-    x = r;
-    dx = -dx - 1;
-  } else {
-    //dx+=1;
+  updateVelocity() {
+    //SUM ALL OF THE FORCE VECTORS
+		this.vx = 0; //new frame, calculations start from scratch
+		this.vy = 0;
+		
+		//calculate all forces each of the other nodes have on _this_ node
+    for (let i = 0; i < nodes.length; i++) {
+
+			let nodeI = nodes[i]; //just a shorthand
+
+			if (nodeI == this) { //skip to next node so we don't compare to ourselves
+				continue; 
+			} 
+			
+			//calculate the distance between the nodes
+      let dx = this.x - nodeI.x; //difference in X
+      let dy = this.y - nodeI.y; //difference in Y
+      let d = hypo(dx, dy); //shortest path between nodes!
+			
+			//calculate the percent influence each axis has
+			//over the resulting force vector's slope
+			let px = dx/(Math.abs(dx)+Math.abs(dy)); 
+			let py = dy/(Math.abs(dx)+Math.abs(dy));
+			
+			//calculate the magnitude of the force experienced by _this_ node
+			//calculate how much force is exerted across each axis
+			let mag = nodeI.strength/d;
+      let magX = (mag)*px;
+      let magY = (mag)*py;
+			
+			//add force vector to previous one. The end result is our velocity! 
+			this.vx += (magX);
+			this.vy += (magY);
+    }
   }
-  x += dx;
-  /*let now = new Date();
-  let delta = now-then;
-  y+=delta*delta*0.001;
-  then = now;
+
+/* 
+ * updates the xy position of the object by multiplying by dt, 
+ * the amount of change per frame in time  
  */
-  //redraw
-  c.beginPath();
-  c.arc(x, y, r, 0, Math.PI * 2, true);
-  c.closePath();
-  c.fillStyle = "blue";
-  c.fill();
-
-  //repaint
-  window.requestAnimationFrame(draw);
+  updatePosition() {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+  }
+/*
+ * draws the position, color, and radius data to the canvas
+ *
+ */
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, 2 * Math.PI, true);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+  }
 }
+
+/*
+ * function calls itself via requestAnimationFrame to progress 
+ * the animation as the browser sees fit
+ */
+ 
+function animate() {
+	call++; //record new frame
+  ctx.clearRect(0, 0, width, height); //clear the canvas
+  for (let i = 0; i < nodes.length; i++) { 
+    nodes[i].updateVelocity(); //calculate the velocities of each node
+  }
+	for (let i = 0; i < nodes.length; i++) {
+    nodes[i].updatePosition(); //change the node's position
+		nodes[i].draw(); //draw the node
+  }
+	
+	requestAnimationFrame(animate); //repeat animation
+}
+
+/* 
+ * function returns the hypoteneuse of a right triangle of leg lengths a and b
+ */
+function hypo(a, b) {
+  return Math.sqrt(a * a + b * b)
+}
+
+//nodes to add to the screen
+new node(width/2+2, height/2+1, 10, 100, 1, "red");
+new node(width/2-1, height/2-1, 10, 100, 1, "yellow");
+new node(width/2+1, height/2+0, 10, 100, 1, "blue");
+new node(width/2+1, height/2-1, 10, 100, 1, "green");
+new node(width/2-2, height/2+1, 10, 100, 1, "purple");
+
+//begin animating
+animate();
