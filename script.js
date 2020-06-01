@@ -4,71 +4,172 @@ const ctx = canvas.getContext("2d");
 const width = (canvas.width = window.innerWidth);
 const height = (canvas.height = window.innerHeight);
 var nodes = []; //holds all nodes on screen
-var dt = 0.1; //amount of change per frame;
-var call=0; //number of iterations
+var dt = 1; //amount of change per frame;
+var call = 0; //number of iterations
 
-class node {
+class Vector {
+  constructor(mag, dir) {
+    this._mag = null;
+    this._dir = null;
+    this._componentsAsDelta = [null, null];
+    this._componentsAsPercent = [null, null];
+
+    this.mag = mag;
+    this.dir = dir;
+  }
+  set mag(m) {
+		//PRIMARY ACCESS POINT (1 of 3)//
+    this._mag = m;
+    this._updateVectorWithDM();
+  }
+  get mag() {
+    return this._mag;
+  }
+  set dir(d) {
+		//PRIMARY ACCESS POINT (2 of 3)//
+    this._dir = d;
+    this._updateVectorWithDM();
+  }
+  get dir() {
+    return this._dir;
+  }
+  set componentsAsDelta(cad) {
+    //PRIMARY ACCESS POINT (3 of 3)//
+    //set mag and dir from the magnitudes of the component vectors
+    this._componentsAsDelta = cad;
+    this._updateVectorWithCAD();
+  }
+  get componentsAsDelta() {
+    return this._componentsAsDelta;
+  }
+  set componentsAsPercent(cap) {
+    console.log("Read only property. Cannot set value componentsAsPercent. Write to componentsAsDelta instead.");
+    return null;
+  }
+  get componentsAsPercent() {
+    return this._componentsAsPercent;
+  }
+  _convertDeltaToPercent(d) {
+    let dx = d[0];
+    let dy = d[1];
+
+    let px = dx / (dx + dy);
+    let py = dy / (dx + dy);
+
+    return [px, py];
+  }
+  _updateVectorWithDM() {
+    //recalculate all components using dir and mag as inputs...
+    let dx = Math.sin(this._dir); //change in x of force vector
+    let dy = Math.cos(this._dir); //change in y of force vector
+
+    this._componentsAsDelta = [dx, dy]; //store the result
+    this._componentsAsPercent = this._convertDeltaToPercent(this._componentsAsDelta);
+  }
+  _updateVectorWithCAD() {
+		//recalculate dir and mag using componentsAsDelta as input 
+    let dx = this._componentsAsDelta[0];
+		let dy = this._componentsAsDelta[1];
+		
+    this._dir = Math.tan(dy/dx);
+    this._mag = Math.sqrt(dx*dx+dy*dy);
+		
+		//also update componentsAsPercent...
+		this._componentsAsPercent = this._convertDeltaToPercent(this._componentsAsDelta);
+  }
+}
+
+class Node {
   constructor(x, y, r, strength, mass, color) {
-    nodes.push(this); //add this to list of nodes
-		this.x = x; //x position
+    this.x = x; //x position
     this.y = y; //y position
-		this.strength = strength; //strength of repelling force
-		
-		this.vx = 0; //velocity in X
-    this.vy = 0; //velocity in Y
-		
+    this.strength = strength; //strength of repelling force
     this.r = r; //radius
-		this.color = color; //aesthetic color
+    this.color = color; //aesthetic color
+
+    this.friction = new Vector(-0.2, 0);
+    this.velocity = new Vector(0, 0); //stores this node's velocity
+
+    nodes.push(this); //add this to list of nodes
   }
 
+  /*
+   * calculates the force vectors impacting this node.
+   * sums them together to get the final force vector.
+   * subtracts friction from the magnitude. 
+   */
   updateVelocity() {
-    //SUM ALL OF THE FORCE VECTORS
-		this.vx = 0; //new frame, calculations start from scratch
-		this.vy = 0;
+
+    let forceVectors = this.collectForceVectors(); //get all force vectors affecting this node 
+    this.velocity.componentsAsDelta = this.vectorComponentSum(forceVectors); //add up all the force vectors
+
+    this.friction.dir = this.velocity.dir; // set friction to be acting in the same directio
+
+    if (this.velocity.mag > -this.friction.mag) { //if strong enough to overcome friction...
+      this.velocity = this.vectorComponentSum([this.friction]); //add friction vector
+    } else {
+      this.velocity.mag = 0; //can't move
+      //console.log("CAN'T MOVE");
+    }
+
+  }
+	
+	vectorComponentSum(vectorArray){
+		let rx = 0;
+		let ry = 0;
 		
-		//calculate all forces each of the other nodes have on _this_ node
+		for(let i = 0; i<vectorArray.length; i++) {
+			let iComps = vectorArray[i].componentsAsDelta;
+			rx += iComps[0];
+			ry += iComps[1];
+		}
+		
+		let result = [rx, ry];
+		return result;
+	}
+
+  collectForceVectors() {
+    let forceVectors = [];
+
+    //calculate all forces each of the other nodes have on _this_ node
     for (let i = 0; i < nodes.length; i++) {
 
-			let nodeI = nodes[i]; //just a shorthand
+      let nodeI = nodes[i]; //just a shorthand
 
-			if (nodeI == this) { //skip to next node so we don't compare to ourselves
-				continue; 
-			} 
-			
-			//calculate the distance between the nodes
+      if (nodeI == this) { //skip to next node so we don't compare to ourselves
+        continue;
+      }
+
+      //calculate the distance between the nodes
       let dx = this.x - nodeI.x; //difference in X
       let dy = this.y - nodeI.y; //difference in Y
-      let d = hypo(dx, dy); //shortest path between nodes!
-			
-			//calculate the percent influence each axis has
-			//over the resulting force vector's slope
-			let px = dx/(Math.abs(dx)+Math.abs(dy)); 
-			let py = dy/(Math.abs(dx)+Math.abs(dy));
-			
-			//calculate the magnitude of the force experienced by _this_ node
-			//calculate how much force is exerted across each axis
-			let mag = nodeI.strength/d;
-      let magX = (mag)*px;
-      let magY = (mag)*py;
-			
-			//add force vector to previous one. The end result is our velocity! 
-			this.vx += (magX);
-			this.vy += (magY);
+      let d = Math.sqrt(dx * dx + dy * dy); //shortest path between nodes!
+
+      //calculate the magnitude of the force experienced by _this_ node
+      let mag = nodeI.strength / d; //magnitude of force vector
+      let dir = Math.sin(dx / d); //direction of force vector in radians
+
+      forceVectors.push(new Vector(mag, dir));
     }
+
+    return forceVectors;
   }
 
-/* 
- * updates the xy position of the object by multiplying by dt, 
- * the amount of change per frame in time  
- */
+
+  /* 
+   * derives the frame's xy coordinates from final velocity vector and dt
+   */
   updatePosition() {
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
+    let c = this.velocity.componentsAsPercent;
+
+    this.x += c[0] * dt; //[0] is x component's magnitude
+    this.y += c[1] * dt; //[1] is y component's magnitude
   }
-/*
- * draws the position, color, and radius data to the canvas
- *
- */
+
+  /*
+   * draws the position, color, and radius data to the canvas
+   *
+   */
   draw() {
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.r, 0, 2 * Math.PI, true);
@@ -81,34 +182,28 @@ class node {
  * function calls itself via requestAnimationFrame to progress 
  * the animation as the browser sees fit
  */
- 
 function animate() {
-	call++; //record new frame
+  call++; //record new frame
   ctx.clearRect(0, 0, width, height); //clear the canvas
-  for (let i = 0; i < nodes.length; i++) { 
+  for (let i = 0; i < nodes.length; i++) {
     nodes[i].updateVelocity(); //calculate the velocities of each node
   }
-	for (let i = 0; i < nodes.length; i++) {
+  for (let i = 0; i < nodes.length; i++) {
     nodes[i].updatePosition(); //change the node's position
-		nodes[i].draw(); //draw the node
+    nodes[i].draw(); //draw the node
   }
-	
-	requestAnimationFrame(animate); //repeat animation
+
+  requestAnimationFrame(animate); //repeat animation
 }
 
-/* 
- * function returns the hypoteneuse of a right triangle of leg lengths a and b
- */
-function hypo(a, b) {
-  return Math.sqrt(a * a + b * b)
-}
+////SCRIPT////
 
 //nodes to add to the screen
-new node(width/2+2, height/2+1, 10, 100, 1, "red");
-new node(width/2-1, height/2-1, 10, 100, 1, "yellow");
-new node(width/2+1, height/2+0, 10, 100, 1, "blue");
-new node(width/2+1, height/2-1, 10, 100, 1, "green");
-new node(width/2-2, height/2+1, 10, 100, 1, "purple");
+new Node(width / 2, height / 2 + 50, 10, 15, 1, "red");
+new Node(width / 2, height / 2 + 00, 10, 15, 1, "yellow");
+new Node(width / 2, height / 2 - 50, 10, 15, 1, "blue");
+//new Node(width / 2 + 11, height / 2 - 11, 10, 5, 1, "green");
+//new Node(width / 2 - 12, height / 2 + 11, 10, 5, 1, "purple");
 
 //begin animating
 animate();
